@@ -1,1 +1,914 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>基于RAG的法律场景即时通信合同辅助系统</title>
+    <!-- 引入Element Plus CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-plus@2.4.4/dist/index.css">
+    <!-- 引入Quill CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.snow.css">
+    <!-- 引入ECharts -->
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <!-- 自定义CSS -->
+    <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+    <div id="app">
+        <!-- 登录/注册页面 -->
+        <div v-if="!isLoggedIn" class="login-container">
+            <div class="login-box">
+                <h2>法律合同辅助系统</h2>
+                <el-tabs v-model="activeTab" type="border-card">
+                    <el-tab-pane label="登录" name="login">
+                        <el-form :model="loginForm" label-position="top" :rules="loginRules" ref="loginFormRef">
+                            <el-form-item label="用户名" prop="username">
+                                <el-input v-model="loginForm.username" placeholder="请输入用户名"></el-input>
+                            </el-form-item>
+                            <el-form-item label="密码" prop="password">
+                                <el-input v-model="loginForm.password" type="password" placeholder="请输入密码"></el-input>
+                            </el-form-item>
+                            <!-- 滑块验证码弹窗 -->
+                            <div class="slider-captcha-modal" v-if="sliderCaptcha.is_open">
+                                <div class="modal-overlay" @click="closeSliderCaptcha"></div>
+                                <div class="modal-content">
+                                    <div class="modal-header">
+                                        <h3>请完成下列验证后继续:</h3>
+                                        <button class="close-btn" @click="closeSliderCaptcha">×</button>
+                                    </div>
+                                    <div class="modal-body">
+                                        <!-- 拼图验证区 -->
+                                        <div class="slider-captcha-image">
+                                            <img :src="sliderCaptcha.background" alt="背景">
+                                            <!-- 缺口 -->
+                                            <div class="slider-gap" 
+                                                 :style="{ 
+                                                     left: sliderCaptcha.gap_x + 'px', 
+                                                     top: sliderCaptcha.gap_y + 'px',
+                                                     width: sliderCaptcha.slider_width + 'px',
+                                                     height: sliderCaptcha.slider_height + 'px'
+                                                 }"></div>
+                                            <!-- 拼图滑块 -->
+                                            <div class="slider-piece" 
+                                                 :style="{ 
+                                                     left: sliderX + 'px', 
+                                                     top: sliderY + 'px',
+                                                     width: sliderCaptcha.slider_width + 'px',
+                                                     height: sliderCaptcha.slider_height + 'px',
+                                                     backgroundImage: `url(${sliderCaptcha.slider})`,
+                                                     backgroundSize: '320px 150px',
+                                                     backgroundPosition: `-${sliderX}px -${sliderY}px`
+                                                 }"></div>
+                                        </div>
+                                        
+                                        <!-- 拖动条 -->
+                                        <div class="slider-track-container">
+                                            <div class="slider-track">
+                                                <div class="slider-bar" :style="{ width: sliderX + 'px', backgroundColor: sliderStatus === 'success' ? '#67c23a' : '#409eff' }"></div>
+                                                <div class="slider-button" 
+                                                     :style="{ left: sliderX + 'px', backgroundColor: sliderStatus === 'success' ? '#67c23a' : '#409eff' }"
+                                                     @mousedown="startSlide"
+                                                     @touchstart="startSlide">
+                                                    <span class="arrow">→</span>
+                                                </div>
+                                                <div class="slider-message" :class="sliderStatus">
+                                                    {{ sliderMessage }}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- 底部功能区 -->
+                                        <div class="slider-footer">
+                                            <button class="refresh-btn" @click="refreshCaptcha">
+                                                <span class="icon">↻</span> 刷新
+                                            </button>
+                                            <button class="feedback-btn">
+                                                <span class="icon">!</span> 反馈
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <el-form-item>
+                                <el-button type="primary" @click="login" :loading="loading" block>登录</el-button>
+                            </el-form-item>
+                        </el-form>
+                    </el-tab-pane>
+                    <el-tab-pane label="注册" name="register">
+                        <el-form :model="registerForm" label-position="top" :rules="registerRules" ref="registerFormRef">
+                            <el-form-item label="用户名" prop="username">
+                                <el-input v-model="registerForm.username" placeholder="请输入用户名"></el-input>
+                            </el-form-item>
+                            <el-form-item label="邮箱" prop="email">
+                                <el-input v-model="registerForm.email" type="email" placeholder="请输入邮箱"></el-input>
+                            </el-form-item>
+                            <el-form-item label="密码" prop="password">
+                                <el-input v-model="registerForm.password" type="password" placeholder="请输入密码"></el-input>
+                            </el-form-item>
+                            <el-form-item label="姓名" prop="name">
+                                <el-input v-model="registerForm.name" placeholder="请输入姓名"></el-input>
+                            </el-form-item>
+                            <el-form-item label="用户类型" prop="user_type">
+                                <el-select v-model="registerForm.user_type" placeholder="请选择用户类型">
+                                    <el-option label="个人" value="individual"></el-option>
+                                    <el-option label="企业" value="enterprise"></el-option>
+                                    <el-option label="律师" value="lawyer"></el-option>
+                                </el-select>
+                            </el-form-item>
+                            <el-form-item>
+                                <el-button type="primary" @click="register" :loading="loading" block>注册</el-button>
+                            </el-form-item>
+                        </el-form>
+                    </el-tab-pane>
+                </el-tabs>
+                <div v-if="error" class="error-message">{{ error }}</div>
+            </div>
+        </div>
 
+        <!-- 主应用页面 -->
+        <div v-else class="app-container">
+            <!-- 顶部导航栏 -->
+            <header class="app-header">
+                <div class="header-left">
+                    <h1>法律合同辅助系统</h1>
+                </div>
+                <div class="header-right">
+                    <el-dropdown>
+                        <span class="user-info">
+                            <el-avatar size="small" :src="user.avatar || 'https://cube.elemecdn.com/0/88/03b0d39583f48206768a7534e55bcpng.png'"></el-avatar>
+                            {{ user.name || user.username }}
+                            <el-icon class="el-icon--right"><arrow-down /></el-icon>
+                        </span>
+                        <template #dropdown>
+                            <el-dropdown-menu>
+                                <el-dropdown-item @click="switchView('profile')">个人中心</el-dropdown-item>
+                                <el-dropdown-item @click="logout">退出登录</el-dropdown-item>
+                            </el-dropdown-menu>
+                        </template>
+                    </el-dropdown>
+                </div>
+            </header>
+
+            <!-- 侧边栏导航 -->
+            <aside class="app-sidebar">
+                <el-menu
+                    :default-active="activeView"
+                    class="sidebar-menu"
+                    @select="handleMenuSelect"
+                    background-color="#2c3e50"
+                    text-color="#fff"
+                    active-text-color="#409EFF"
+                    unique-opened
+                >
+                    <el-menu-item index="chat">
+                        <el-icon><chat-dot-round /></el-icon>
+                        <template #title>即时通信</template>
+                    </el-menu-item>
+                    <el-menu-item index="contracts">
+                        <el-icon><document /></el-icon>
+                        <template #title>合同管理</template>
+                    </el-menu-item>
+                    <el-menu-item index="generate">
+                        <el-icon><edit-pen /></el-icon>
+                        <template #title>合同生成</template>
+                    </el-menu-item>
+                    <el-menu-item index="review">
+                        <el-icon><check-circle /></el-icon>
+                        <template #title>法律审核</template>
+                    </el-menu-item>
+                    <el-menu-item index="knowledge">
+                        <el-icon><document-copy /></el-icon>
+                        <template #title>法律知识库</template>
+                    </el-menu-item>
+                    <el-menu-item index="stats">
+                        <el-icon><data-analysis /></el-icon>
+                        <template #title>数据分析</template>
+                    </el-menu-item>
+                    <el-menu-item index="ai_chat">
+                        <el-icon><chat-round /></el-icon>
+                        <template #title>AI助手</template>
+                    </el-menu-item>
+                </el-menu>
+            </aside>
+
+            <!-- 主内容区域 -->
+            <main class="app-main">
+                <!-- 即时通信页面 -->
+                <div v-if="activeView === 'chat'" class="chat-page">
+                    <div class="chat-container">
+                        <!-- 左侧：聊天房间列表 -->
+                        <div class="chat-rooms">
+                            <div class="chat-rooms-header">
+                                <h3>我的聊天室</h3>
+                                <el-button type="primary" size="small" @click="createChatRoom">创建房间</el-button>
+                            </div>
+                            <div class="chat-rooms-list">
+                                <div
+                                    v-for="room in chatRooms"
+                                    :key="room.id"
+                                    class="chat-room-item"
+                                    :class="{ 'active': currentChatRoom && currentChatRoom.id === room.id }"
+                                >
+                                    <div class="room-content" @click="selectChatRoom(room)">
+                                        <!-- 聊天室图标 -->
+                                        <el-avatar :size="40" :style="{ backgroundColor: getRoomColor(room.id) }" class="room-avatar">
+                                            {{ getRoomInitial(room.name) }}
+                                        </el-avatar>
+                                        <div class="room-info">
+                                            <div class="room-name">{{ room.name }}</div>
+                                            <div class="room-desc">{{ room.description || '无描述' }}</div>
+                                            <div class="room-members">{{ room.users?.length || 0 }} 成员</div>
+                                        </div>
+                                    </div>
+                                    <!-- 删除聊天室按钮 -->
+                                    <div class="room-actions">
+                                        <el-button
+                                            type="danger"
+                                            size="small"
+                                            icon="el-icon-delete"
+                                            @click.stop="deleteChatRoom(room)"
+                                            title="删除聊天室"
+                                        >
+                                            删除
+                                        </el-button>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- 可加入的聊天室列表 -->
+                            <div class="available-rooms" v-if="availableRooms && availableRooms.length > 0">
+                                <div class="available-rooms-header">
+                                    <h3>可加入的聊天室</h3>
+                                    <el-button type="text" size="small" @click="loadAvailableRooms">刷新</el-button>
+                                </div>
+                                <div class="available-rooms-list">
+                                    <div
+                                        v-for="room in availableRooms"
+                                        :key="room.id"
+                                        class="available-room-item"
+                                    >
+                                        <div class="room-content" @click="joinRoom(room)">
+                                            <!-- 聊天室图标 -->
+                                            <el-avatar :size="40" :style="{ backgroundColor: getRoomColor(room.id) }" class="room-avatar">
+                                                {{ getRoomInitial(room.name) }}
+                                            </el-avatar>
+                                            <div class="room-info">
+                                                <div class="room-name">{{ room.name }}</div>
+                                                <div class="room-desc">{{ room.description || '无描述' }}</div>
+                                                <div class="room-members">{{ room.users?.length || 0 }} 成员</div>
+                                            </div>
+                                        </div>
+                                        <!-- 加入按钮 -->
+                                        <div class="room-actions">
+                                            <el-button
+                                                type="primary"
+                                                size="small"
+                                                @click.stop="joinRoom(room)"
+                                                title="加入聊天室"
+                                            >
+                                                加入
+                                            </el-button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 右侧：聊天界面 -->
+                        <div class="chat-messages" v-if="currentChatRoom">
+                            <div class="chat-header">
+                                <h3>{{ currentChatRoom.name }}</h3>
+                                <el-button type="primary" size="small" @click="generateContractFromChat" :loading="loading">
+                                    <el-icon><document /></el-icon>
+                                    生成合同
+                                </el-button>
+                                <div v-if="loading" class="loading-indicator">
+                                    <el-icon class="is-loading"><Loading /></el-icon>
+                                    <span>正在生成合同，请稍候...</span>
+                                </div>
+                            </div>
+                            
+                            <!-- AI分析结果区域 -->
+                            <div class="ai-analysis" v-if="keyInformation">
+                                <div class="analysis-header">
+                                    <el-icon><chat-dot-round /></el-icon>
+                                    <span>AI智能分析</span>
+                                </div>
+                                <div class="analysis-content">
+                                    <div class="analysis-section" v-if="keyInformation.summary">
+                                        <div class="section-title">聊天总结</div>
+                                        <div class="section-content">{{ keyInformation.summary }}</div>
+                                    </div>
+                                    <div class="analysis-section" v-if="keyInformation.key_points && keyInformation.key_points.length > 0">
+                                        <div class="section-title">关键信息点</div>
+                                        <ul class="section-list">
+                                            <li v-for="(point, index) in keyInformation.key_points" :key="index">
+                                                <el-icon class="point-icon"><check /></el-icon>
+                                                {{ point }}
+                                            </li>
+                                        </ul>
+                                    </div>
+                                    <div class="analysis-section" v-if="keyInformation.legal_issues && keyInformation.legal_issues.length > 0">
+                                        <div class="section-title">法律问题</div>
+                                        <ul class="section-list">
+                                            <li v-for="(issue, index) in keyInformation.legal_issues" :key="index">
+                                                <el-icon class="issue-icon"><warning /></el-icon>
+                                                {{ issue }}
+                                            </li>
+                                        </ul>
+                                    </div>
+                                    <div class="analysis-section" v-if="keyInformation.contract_elements && keyInformation.contract_elements.length > 0">
+                                        <div class="section-title">合同要素</div>
+                                        <ul class="section-list">
+                                            <li v-for="(element, index) in keyInformation.contract_elements" :key="index">
+                                                <el-icon class="element-icon"><document /></el-icon>
+                                                {{ element }}
+                                            </li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- 消息区域 -->
+                            <div class="messages-container">
+                                <div
+                                    v-for="message in messages"
+                                    :key="message.id"
+                                    class="message-item"
+                                    :class="{
+                                        'own-message': message.sender_id === user.id,
+                                        'ai-message': message.is_ai_message || message.sender_id === -1
+                                    }"
+                                >
+                                    <div class="message-avatar">
+                                        <el-avatar size="small">{{ message.sender_name.charAt(0) }}</el-avatar>
+                                    </div>
+                                    <div class="message-content">
+                                        <div class="message-info">
+                                            <span class="sender-name">{{ message.sender_name }}</span>
+                                            <span class="message-time">{{ formatTime(message.created_at) }}</span>
+                                        </div>
+                                        <div class="message-text">{{ message.content }}</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- 输入区域 -->
+                            <div class="message-input-area">
+                                <el-input
+                                    v-model="newMessage"
+                                    placeholder="输入消息..."
+                                    @keyup.enter="sendMessage"
+                                    type="textarea"
+                                    :rows="1"
+                                    resize="none"
+                                ></el-input>
+                                <el-button type="primary" @click="sendMessage" :disabled="!newMessage.trim() || !currentChatRoom">发送</el-button>
+                            </div>
+                        </div>
+                        <div v-else class="no-chat-selected">
+                            <el-empty description="请选择一个聊天房间开始聊天"></el-empty>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- AI助手对话页面 -->
+                <div v-if="activeView === 'ai_chat'" class="ai-chat-page">
+                    <div class="page-header">
+                        <h2>AI法律助手</h2>
+                        <el-button type="success" size="small" @click="clearAIChatHistory">清空对话</el-button>
+                    </div>
+                    <div class="ai-chat-container">
+                        <!-- 对话消息区域 -->
+                        <div class="ai-chat-messages">
+                            <div
+                                v-for="(message, index) in aiChatMessages"
+                                :key="index"
+                                class="ai-chat-message-item"
+                                :class="{ 'user-message': message.sender === 'user', 'ai-message': message.sender === 'ai' }"
+                            >
+                                <div class="message-avatar">
+                                    <el-avatar size="small">{{ message.sender === 'user' ? user.name.charAt(0) : 'AI' }}</el-avatar>
+                                </div>
+                                <div class="message-content">
+                                    <div class="message-info">
+                                        <span class="sender-name">{{ message.sender === 'user' ? user.name : 'AI助手' }}</span>
+                                        <span class="message-time">{{ formatTime(message.timestamp) }}</span>
+                                    </div>
+                                    <div class="message-text">{{ message.content }}</div>
+                                </div>
+                            </div>
+                            <div v-if="aiChatLoading" class="loading-message">
+                                <el-icon class="is-loading"><Loading /></el-icon>
+                                <span>AI助手正在思考...</span>
+                            </div>
+                        </div>
+                        
+                        <!-- 输入区域 -->
+                        <div class="ai-chat-input-area">
+                            <el-input
+                                v-model="aiChatInput"
+                                placeholder="请输入您的问题，AI助手将为您解答法律问题..."
+                                @keyup.enter="sendAIMessage"
+                                type="textarea"
+                                :rows="2"
+                                resize="none"
+                                style="margin-right: 10px;"
+                            ></el-input>
+                            <el-button type="primary" @click="sendAIMessage" :disabled="!aiChatInput.trim() || aiChatLoading">
+                                <el-icon><Send /></el-icon>
+                                发送
+                            </el-button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 合同管理页面 -->
+                <div v-if="activeView === 'contracts'" class="contracts-page">
+                    <div class="page-header">
+                        <h2>合同管理</h2>
+                        <el-button type="primary" @click="switchView('generate')">生成新合同</el-button>
+                    </div>
+                    <el-table :data="contracts" stripe style="width: 100%">
+                        <el-table-column prop="id" label="合同ID" width="80"></el-table-column>
+                        <el-table-column prop="title" label="合同名称"></el-table-column>
+                        <el-table-column prop="template_type" label="合同类型" width="120"></el-table-column>
+                        <el-table-column prop="status" label="状态" width="100">
+                            <template #default="scope">
+                                <el-tag :type="scope.row.status === 'draft' ? 'info' : scope.row.status === 'reviewed' ? 'success' : 'warning'">
+                                    {{ scope.row.status }}
+                                </el-tag>
+                            </template>
+                        </el-table-column>
+                        <el-table-column prop="created_at" label="创建时间" width="180">
+                            <template #default="scope">
+                                {{ formatDateTime(scope.row.created_at) }}
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="操作" width="200" fixed="right">
+                            <template #default="scope">
+                                <el-button type="primary" size="small" @click="viewContract(scope.row)">查看</el-button>
+                                <el-button type="warning" size="small" @click="editContract(scope.row)">编辑</el-button>
+                                <el-button type="success" size="small" @click="reviewContract(scope.row)">审核</el-button>
+                            </template>
+                        </el-table-column>
+                    </el-table>
+                </div>
+
+                <!-- 合同生成页面 -->
+                <div v-if="activeView === 'generate'" class="generate-page">
+                    <div class="page-header">
+                        <h2>合同生成</h2>
+                        <el-button type="success" @click="saveContract" :loading="loading">保存合同</el-button>
+                    </div>
+                    <div class="generate-container">
+                        <div class="left-panel">
+                            <el-form :model="contractForm" label-position="top" :rules="contractRules" ref="contractFormRef">
+                                <el-form-item label="合同名称" prop="title">
+                                    <el-input v-model="contractForm.title" placeholder="请输入合同名称" @input="updateContractContent"></el-input>
+                                </el-form-item>
+                                <el-form-item label="合同类型" prop="template_type">
+                                    <el-select v-model="contractForm.template_type" placeholder="请选择合同类型" @change="updateContractContent">
+                                        <el-option label="买卖合同" value="sales"></el-option>
+                                        <el-option label="借款合同" value="loan"></el-option>
+                                        <el-option label="租赁合同" value="lease"></el-option>
+                                        <el-option label="服务合同" value="service"></el-option>
+                                        <el-option label="劳动合同" value="labor"></el-option>
+                                    </el-select>
+                                </el-form-item>
+                                <el-form-item label="甲方" prop="party_a">
+                                    <el-input v-model="contractForm.party_a" placeholder="请输入甲方名称" @input="updateContractContent"></el-input>
+                                </el-form-item>
+                                <el-form-item label="乙方" prop="party_b">
+                                    <el-input v-model="contractForm.party_b" placeholder="请输入乙方名称" @input="updateContractContent"></el-input>
+                                </el-form-item>
+                                <el-form-item label="合同标的" prop="subject">
+                                    <el-input v-model="contractForm.subject" placeholder="请输入合同标的" @input="updateContractContent"></el-input>
+                                </el-form-item>
+                                <el-form-item label="合同金额" prop="amount">
+                                    <el-input v-model="contractForm.amount" placeholder="请输入合同金额" @input="updateContractContent"></el-input>
+                                </el-form-item>
+                                <el-form-item label="合同期限" prop="term">
+                                    <el-input v-model="contractForm.term" placeholder="请输入合同期限（如：1年）" @input="updateContractContent"></el-input>
+                                </el-form-item>
+                                <el-form-item label="签订地点" prop="location">
+                                    <el-input v-model="contractForm.location" placeholder="请输入签订地点" @input="updateContractContent"></el-input>
+                                </el-form-item>
+                                <el-button type="primary" @click="updateContractContent" :loading="loading">修改合同</el-button>
+                            </el-form>
+                        </div>
+                        <div class="right-panel">
+                            <div class="editor-header">
+                                <h3>合同内容</h3>
+                            </div>
+                            <div ref="editorRef" class="contract-editor"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 法律审核页面 -->
+                <div v-if="activeView === 'review'" class="review-page">
+                    <div class="page-header">
+                        <h2>法律审核</h2>
+                        <el-button type="primary" @click="startLegalReview" :loading="loading">开始审核</el-button>
+                    </div>
+                    <div class="review-container">
+                        <div class="left-panel">
+                            <div class="editor-header">
+                                <h3>合同内容</h3>
+                                <el-upload
+                                    class="upload-contract"
+                                    action="#"
+                                    :auto-upload="false"
+                                    :on-change="handleFileChange"
+                                    accept=".txt,.docx,.pdf"
+                                    :show-file-list="false"
+                                >
+                                    <el-button size="small" type="primary">
+                                        <el-icon><upload /></el-icon>
+                                        上传合同
+                                    </el-button>
+                                </el-upload>
+                            </div>
+                            <div ref="reviewEditorRef" class="contract-editor"></div>
+                        </div>
+                        <div class="right-panel">
+                            <div class="review-results">
+                                <div class="results-header">
+                                    <h3>审核结果</h3>
+                                    <div class="risk-summary">
+                                        <el-tag type="danger" size="large">高风险: {{ riskSummary.high }}</el-tag>
+                                        <el-tag type="warning" size="large">中风险: {{ riskSummary.medium }}</el-tag>
+                                        <el-tag type="info" size="large">低风险: {{ riskSummary.low }}</el-tag>
+                                    </div>
+                                </div>
+                                <div class="risk-points">
+                                    <el-collapse v-model="activeRiskPoint" accordion>
+                                        <el-collapse-item
+                                            v-for="(risk, index) in legalTips"
+                                            :key="index"
+                                            :title="risk.clause"
+                                            :name="index"
+                                        >
+                                            <div class="risk-detail">
+                                                <div class="risk-level">
+                                                    <span class="label">风险等级：</span>
+                                                    <el-tag :type="getRiskLevelType(risk.risk_level)">{{ risk.risk_level }}</el-tag>
+                                                </div>
+                                                <div class="risk-reason">
+                                                    <span class="label">风险原因：</span>
+                                                    <p>{{ risk.reason }}</p>
+                                                </div>
+                                                <div class="risk-suggestion">
+                                                    <span class="label">修改建议：</span>
+                                                    <p>{{ risk.suggestion }}</p>
+                                                </div>
+                                                <div v-if="risk.legal_basis && risk.legal_basis.length > 0" class="legal-basis">
+                                                    <span class="label">法律依据：</span>
+                                                    <el-collapse>
+                                                        <el-collapse-item
+                                                            v-for="(basis, basisIndex) in risk.legal_basis"
+                                                            :key="basisIndex"
+                                                            :title="basis.title"
+                                                        >
+                                                            <p>{{ basis.content }}</p>
+                                                            <div class="basis-source">
+                                                                {{ basis.source }} {{ basis.article_number }}
+                                                            </div>
+                                                        </el-collapse-item>
+                                                    </el-collapse>
+                                                </div>
+                                            </div>
+                                        </el-collapse-item>
+                                    </el-collapse>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 法律知识库页面 -->
+                <div v-if="activeView === 'knowledge'" class="knowledge-page">
+                    <div class="page-header">
+                        <h2>法律知识库</h2>
+                        <el-button type="primary" size="small" @click="refreshLegalClauses" :loading="knowledgeLoading">
+                            <el-icon><RefreshRight /></el-icon>
+                            刷新
+                        </el-button>
+                    </div>
+                    <div class="knowledge-container">
+                        <!-- 筛选和搜索区域 -->
+                        <div class="knowledge-filters">
+                            <el-row :gutter="20">
+                                <el-col :span="8">
+                                    <el-input
+                                        v-model="knowledgeSearch"
+                                        placeholder="搜索关键词"
+                                        prefix-icon="el-icon-search"
+                                        @keyup.enter="fetchLegalClauses"
+                                    ></el-input>
+                                </el-col>
+                                <el-col :span="6">
+                                    <el-select
+                                        v-model="selectedCategory"
+                                        placeholder="选择类别"
+                                        @change="fetchLegalClauses"
+                                    >
+                                        <el-option label="全部" value=""></el-option>
+                                        <el-option
+                                            v-for="category in categories"
+                                            :key="category"
+                                            :label="category"
+                                            :value="category"
+                                        ></el-option>
+                                    </el-select>
+                                </el-col>
+                                <el-col :span="6">
+                                    <el-select
+                                        v-model="selectedSource"
+                                        placeholder="选择来源"
+                                        @change="fetchLegalClauses"
+                                    >
+                                        <el-option label="全部" value=""></el-option>
+                                        <el-option
+                                            v-for="source in sources"
+                                            :key="source"
+                                            :label="source"
+                                            :value="source"
+                                        ></el-option>
+                                    </el-select>
+                                </el-col>
+                                <el-col :span="4">
+                                    <el-button
+                                        type="primary"
+                                        @click="fetchLegalClauses"
+                                        :loading="knowledgeLoading"
+                                    >
+                                        <el-icon><Search /></el-icon>
+                                        搜索
+                                    </el-button>
+                                </el-col>
+                            </el-row>
+                        </div>
+
+                        <!-- 法律条款列表 -->
+                        <div class="knowledge-list">
+                            <el-table
+                                :data="legalClauses"
+                                stripe
+                                style="width: 100%"
+                                @row-click="viewLegalClause"
+                                border
+                            >
+                                <el-table-column prop="clause_number" label="条款编号" width="180"></el-table-column>
+                                <el-table-column prop="title" label="标题" min-width="300"></el-table-column>
+                                <el-table-column prop="source" label="来源" width="150"></el-table-column>
+                                <el-table-column prop="category" label="类别" width="120"></el-table-column>
+                                <el-table-column prop="created_at" label="创建时间" width="180">
+                                    <template #default="scope">
+                                        {{ formatDateTime(scope.row.created_at) }}
+                                    </template>
+                                </el-table-column>
+                                <el-table-column label="操作" width="150" fixed="right">
+                                    <template #default="scope">
+                                        <el-button
+                                            type="primary"
+                                            size="small"
+                                            @click.stop="viewLegalClauseDetail(scope.row)"
+                                        >
+                                            <el-icon><View /></el-icon>
+                                            详情
+                                        </el-button>
+                                    </template>
+                                </el-table-column>
+                            </el-table>
+                        </div>
+
+                        <!-- 分页 -->
+                        <div class="knowledge-pagination">
+                            <el-pagination
+                                v-model:current-page="currentPage"
+                                v-model:page-size="pageSize"
+                                :page-sizes="[10, 20, 50, 100]"
+                                layout="total, sizes, prev, pager, next, jumper"
+                                :total="totalClauses"
+                                @size-change="handlePageSizeChange"
+                                @current-change="handleCurrentPageChange"
+                            ></el-pagination>
+                        </div>
+
+                        <!-- 条款详情弹窗 -->
+                        <el-dialog
+                            v-model="showClauseDetail"
+                            title="法律条款详情"
+                            width="60%"
+                            :before-close="closeClauseDetail"
+                        >
+                            <div v-if="selectedClause" class="clause-detail">
+                                <div class="detail-header">
+                                    <h3>{{ selectedClause.title }}</h3>
+                                    <div class="detail-info">
+                                        <el-tag size="small">{{ selectedClause.source }}</el-tag>
+                                        <el-tag size="small" type="info">{{ selectedClause.category }}</el-tag>
+                                        <span class="detail-number">条款编号: {{ selectedClause.clause_number }}</span>
+                                    </div>
+                                </div>
+                                <div class="detail-content">
+                                    <el-divider>条款内容</el-divider>
+                                    <div class="clause-text">{{ selectedClause.content }}</div>
+                                </div>
+                                <div v-if="selectedClause.applicable_scenarios && selectedClause.applicable_scenarios.length > 0" class="detail-scenarios">
+                                    <el-divider>适用场景</el-divider>
+                                    <el-tag
+                                        v-for="(scenario, index) in selectedClause.applicable_scenarios"
+                                        :key="index"
+                                        size="small"
+                                        class="scenario-tag"
+                                    >
+                                        {{ scenario }}
+                                    </el-tag>
+                                </div>
+                            </div>
+                            <template #footer>
+                                <span class="dialog-footer">
+                                    <el-button @click="closeClauseDetail">关闭</el-button>
+                                </span>
+                            </template>
+                        </el-dialog>
+                    </div>
+                </div>
+
+                <!-- 个人中心页面 -->
+                <div v-if="activeView === 'profile'" class="profile-page">
+                    <div class="page-header">
+                        <h2>个人中心</h2>
+                    </div>
+                    <div class="profile-container">
+                        <el-tabs type="border-card">
+                            <!-- 个人资料标签页 -->
+                            <el-tab-pane label="个人资料" name="basic">
+                                <div class="profile-form">
+                                    <div class="avatar-upload-section">
+                                        <el-upload
+                                            class="avatar-uploader"
+                                            action="#"
+                                            :show-file-list="false"
+                                            :on-change="handleAvatarUpload"
+                                            :auto-upload="false"
+                                        >
+                                            <el-avatar
+                                                :size="120"
+                                                :src="profileForm.avatar || 'https://cube.elemecdn.com/0/88/03b0d39583f48206768a7534e55bcpng.png'"
+                                                class="avatar"
+                                            >
+                                                <template #default>
+                                                    {{ user.name.charAt(0) }}
+                                                </template>
+                                            </el-avatar>
+                                            <div class="avatar-upload-text">点击更换头像</div>
+                                        </el-upload>
+                                    </div>
+                                    
+                                    <el-form :model="profileForm" label-width="120px">
+                                        <el-form-item label="用户名">
+                                            <el-input v-model="user.username" disabled></el-input>
+                                        </el-form-item>
+                                        <el-form-item label="姓名">
+                                            <el-input v-model="profileForm.name"></el-input>
+                                        </el-form-item>
+                                        <el-form-item label="邮箱">
+                                            <el-input v-model="profileForm.email" type="email"></el-input>
+                                        </el-form-item>
+                                        <el-form-item label="用户类型">
+                                            <el-select v-model="profileForm.user_type" disabled>
+                                                <el-option label="个人" value="individual"></el-option>
+                                                <el-option label="企业" value="enterprise"></el-option>
+                                                <el-option label="律师" value="lawyer"></el-option>
+                                            </el-select>
+                                        </el-form-item>
+                                        <el-form-item>
+                                            <el-button type="primary" @click="updateProfile" :loading="profileLoading">
+                                                保存修改
+                                            </el-button>
+                                            <el-alert
+                                                v-if="profileSuccess"
+                                                title="个人资料更新成功"
+                                                type="success"
+                                                show-icon
+                                                :closable="false"
+                                                class="success-alert"
+                                            ></el-alert>
+                                        </el-form-item>
+                                    </el-form>
+                                </div>
+                            </el-tab-pane>
+                            
+                            <!-- 密码修改标签页 -->
+                            <el-tab-pane label="修改密码" name="password">
+                                <el-form :model="passwordForm" label-width="120px">
+                                    <el-form-item label="旧密码">
+                                        <el-input v-model="passwordForm.old_password" type="password" placeholder="请输入旧密码"></el-input>
+                                    </el-form-item>
+                                    <el-form-item label="新密码">
+                                        <el-input v-model="passwordForm.new_password" type="password" placeholder="请输入新密码"></el-input>
+                                    </el-form-item>
+                                    <el-form-item label="确认密码">
+                                        <el-input v-model="passwordForm.confirm_password" type="password" placeholder="请再次输入新密码"></el-input>
+                                    </el-form-item>
+                                    <el-form-item>
+                                        <el-button type="primary" @click="changePassword" :loading="passwordLoading">
+                                            修改密码
+                                        </el-button>
+                                        <el-alert
+                                            v-if="passwordSuccess"
+                                            title="密码修改成功"
+                                            type="success"
+                                            show-icon
+                                            :closable="false"
+                                            class="success-alert"
+                                        ></el-alert>
+                                    </el-form-item>
+                                </el-form>
+                            </el-tab-pane>
+                        </el-tabs>
+                    </div>
+                </div>
+
+                <!-- 合同核对页面 -->
+                <div v-if="activeView === 'contract_check'" class="generate-page">
+                    <div class="page-header">
+                        <h2>合同信息核对</h2>
+                    </div>
+                    <div class="generate-container">
+                        <div class="left-panel" style="width: 100%;">
+                            <el-form :model="contractForm" label-position="top" :rules="contractRules" ref="contractFormRef">
+                                <el-form-item label="合同名称" prop="title">
+                                    <el-input v-model="contractForm.title" placeholder="请输入合同名称"></el-input>
+                                </el-form-item>
+                                <el-form-item label="合同类型" prop="template_type">
+                                    <el-select v-model="contractForm.template_type" placeholder="请选择合同类型">
+                                        <el-option label="买卖合同" value="sales"></el-option>
+                                        <el-option label="借款合同" value="loan"></el-option>
+                                        <el-option label="租赁合同" value="lease"></el-option>
+                                        <el-option label="服务合同" value="service"></el-option>
+                                        <el-option label="劳动合同" value="labor"></el-option>
+                                    </el-select>
+                                </el-form-item>
+                                <el-form-item label="甲方" prop="party_a">
+                                    <el-input v-model="contractForm.party_a" placeholder="请输入甲方名称"></el-input>
+                                </el-form-item>
+                                <el-form-item label="乙方" prop="party_b">
+                                    <el-input v-model="contractForm.party_b" placeholder="请输入乙方名称"></el-input>
+                                </el-form-item>
+                                <el-form-item label="合同标的" prop="subject">
+                                    <el-input v-model="contractForm.subject" placeholder="请输入合同标的"></el-input>
+                                </el-form-item>
+                                <el-form-item label="合同金额" prop="amount">
+                                    <el-input v-model="contractForm.amount" placeholder="请输入合同金额"></el-input>
+                                </el-form-item>
+                                <el-form-item label="合同期限" prop="term">
+                                    <el-input v-model="contractForm.term" placeholder="请输入合同期限（如：1年）"></el-input>
+                                </el-form-item>
+                                <el-form-item label="签订地点" prop="location">
+                                    <el-input v-model="contractForm.location" placeholder="请输入签订地点"></el-input>
+                                </el-form-item>
+                                <el-button type="primary" @click="confirmGenerateContract" :loading="loading">确认生成合同</el-button>
+                            </el-form>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 合同终态查看页面 -->
+                <div v-if="activeView === 'contract_view'" class="generate-page">
+                    <div class="page-header">
+                        <h2>合同查看</h2>
+                        <div>
+                            <el-button type="success" @click="saveContract" :loading="loading">保存合同</el-button>
+                            <el-button type="primary" @click="downloadContract" :loading="loading" style="margin-left: 10px;">下载合同</el-button>
+                        </div>
+                    </div>
+                    <div class="generate-container">
+                        <div class="right-panel" style="width: 100%;">
+                            <div class="editor-header">
+                                <h3>合同内容</h3>
+                            </div>
+                            <div ref="editorRef" class="contract-editor"></div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+    
+    <!-- 引入Vue 3 -->
+    <script src="https://cdn.jsdelivr.net/npm/vue@3.3.11/dist/vue.global.js"></script>
+    <!-- 引入Element Plus -->
+    <script src="https://cdn.jsdelivr.net/npm/element-plus@2.4.4/dist/index.full.js"></script>
+    <!-- 引入Axios -->
+    <script src="https://cdn.jsdelivr.net/npm/axios@1.6.2/dist/axios.min.js"></script>
+    <!-- 引入Quill -->
+    <script src="https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.min.js"></script>
+    <!-- 自定义JS -->
+    <script src="./app.js"></script>
+</body>
+</html>
