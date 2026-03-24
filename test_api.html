@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API测试</title>
+    <script src="https://cdn.jsdelivr.net/npm/axios@1.6.2/dist/axios.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .result {
+            background-color: #f5f5f5;
+            padding: 10px;
+            margin-top: 10px;
+            border-radius: 3px;
+            white-space: pre-wrap;
+            font-family: monospace;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 14px;
+            margin: 4px 2px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .error {
+            color: red;
+        }
+        .success {
+            color: green;
+        }
+    </style>
+</head>
+<body>
+    <h1>RAG法律合同系统 API测试</h1>
+    
+    <div class="test-section">
+        <h2>1. 用户登录</h2>
+        <div>
+            <label>用户名: <input type="text" id="username" value="testuser"></label><br>
+            <label>密码: <input type="password" id="password" value="password123"></label><br>
+            <button onclick="testLogin()">登录</button>
+        </div>
+        <div id="loginResult" class="result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>2. 获取聊天房间</h2>
+        <button onclick="testGetChatRooms()">获取聊天房间</button>
+        <div id="chatRoomsResult" class="result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>3. 创建聊天房间</h2>
+        <div>
+            <label>聊天室名称: <input type="text" id="roomName" value="测试聊天室"></label><br>
+            <button onclick="testCreateChatRoom()">创建聊天室</button>
+        </div>
+        <div id="createRoomResult" class="result"></div>
+    </div>
+    
+    <script>
+        // 全局配置
+        const API_BASE_URL = 'http://127.0.0.1:8000/api';
+        let token = '';
+        
+        // 创建Axios实例
+        const axiosInstance = axios.create({
+            baseURL: API_BASE_URL,
+            timeout: 10000,
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        // 添加请求拦截器，自动添加token
+        axiosInstance.interceptors.request.use(
+            config => {
+                if (token) {
+                    config.headers.Authorization = `Bearer ${token}`;
+                }
+                return config;
+            },
+            error => {
+                return Promise.reject(error);
+            }
+        );
+        
+        // 测试登录
+        async function testLogin() {
+            const resultDiv = document.getElementById('loginResult');
+            resultDiv.innerHTML = '登录中...';
+            
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            
+            try {
+                const response = await axiosInstance.post('/auth/login', {
+                    username: username,
+                    password: password
+                });
+                
+                token = response.data.access_token;
+                localStorage.setItem('token', token);
+                localStorage.setItem('user', JSON.stringify(response.data.user));
+                
+                resultDiv.innerHTML = '<span class="success">登录成功!</span><br>Token: ' + token;
+                console.log('登录成功:', response.data);
+            } catch (error) {
+                resultDiv.innerHTML = '<span class="error">登录失败:</span><br>' + JSON.stringify(error.response || error, null, 2);
+                console.error('登录失败:', error);
+            }
+        }
+        
+        // 测试获取聊天房间
+        async function testGetChatRooms() {
+            const resultDiv = document.getElementById('chatRoomsResult');
+            resultDiv.innerHTML = '获取中...';
+            
+            try {
+                const response = await axiosInstance.get('/chat/rooms');
+                resultDiv.innerHTML = '<span class="success">获取成功!</span><br>' + JSON.stringify(response.data, null, 2);
+                console.log('获取聊天房间成功:', response.data);
+            } catch (error) {
+                resultDiv.innerHTML = '<span class="error">获取失败:</span><br>' + JSON.stringify(error.response || error, null, 2);
+                console.error('获取聊天房间失败:', error);
+            }
+        }
+        
+        // 测试创建聊天房间
+        async function testCreateChatRoom() {
+            const resultDiv = document.getElementById('createRoomResult');
+            resultDiv.innerHTML = '创建中...';
+            
+            const roomName = document.getElementById('roomName').value;
+            
+            try {
+                const response = await axiosInstance.post('/chat/rooms', {
+                    name: roomName,
+                    description: '这是一个测试聊天室',
+                    user_ids: []
+                });
+                resultDiv.innerHTML = '<span class="success">创建成功!</span><br>' + JSON.stringify(response.data, null, 2);
+                console.log('创建聊天室成功:', response.data);
+            } catch (error) {
+                resultDiv.innerHTML = '<span class="error">创建失败:</span><br>' + JSON.stringify(error.response || error, null, 2);
+                console.error('创建聊天室失败:', error);
+            }
+        }
+        
+        // 页面加载时检查本地存储中的token
+        window.onload = function() {
+            token = localStorage.getItem('token');
+            if (token) {
+                document.getElementById('loginResult').innerHTML = '<span class="success">已从本地存储获取token</span>';
+            }
+        };
+    </script>
+</body>
+</html>
